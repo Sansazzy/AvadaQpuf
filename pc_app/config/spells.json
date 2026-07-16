@@ -1,0 +1,10 @@
+{
+  "gestures": [],
+  "settings": {
+    "udp_port": 4210,
+    "motion_threshold": 8.0,
+    "still_ms": 180,
+    "match_threshold": 0.62,
+    "cooldown_ms": 450
+  }
+}
