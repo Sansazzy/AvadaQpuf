@@ -5,6 +5,8 @@
     "motion_threshold": 8.0,
     "still_ms": 180,
     "match_threshold": 0.62,
-    "cooldown_ms": 450
+    "cooldown_ms": 450,
+    "draw_scale": 6.0,
+    "draw_clear_after_s": 5.0
   }
 }

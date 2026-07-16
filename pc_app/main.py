@@ -58,6 +58,14 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
             print("\nGrabación cancelada.")
 
 
+def cmd_draw(store: GestureStore) -> None:
+    from draw_canvas import run_canvas
+
+    print("Abriendo lienzo 720x720. Mueve la varita para dibujar.")
+    print(f"Se limpia tras {store.settings.draw_clear_after_s:.0f}s sin movimiento.")
+    run_canvas(store)
+
+
 def cmd_cast(store: GestureStore) -> None:
     if not store.gestures:
         print("No hay gestos en spells.json. Usa: python main.py record --name X --key Y")
@@ -84,6 +92,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("monitor", help="Ver posición en tiempo real")
+    sub.add_parser("draw", help="Lienzo 2D que pinta el movimiento")
 
     rec = sub.add_parser("record", help="Grabar un gesto")
     rec.add_argument("--name", required=True, help="Nombre del hechizo")
@@ -96,6 +105,8 @@ def main() -> None:
 
     if args.command == "monitor":
         cmd_monitor(store)
+    elif args.command == "draw":
+        cmd_draw(store)
     elif args.command == "record":
         cmd_record(store, args.name, args.key)
     elif args.command == "cast":

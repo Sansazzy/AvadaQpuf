@@ -32,6 +32,8 @@ class AppSettings:
     still_ms: int = 180
     match_threshold: float = 0.62
     cooldown_ms: int = 450
+    draw_scale: float = 6.0
+    draw_clear_after_s: float = 5.0
 
 
 @dataclass
