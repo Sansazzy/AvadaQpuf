@@ -24,6 +24,8 @@ def cmd_monitor(store: GestureStore) -> None:
     with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
+                if sample.device_id != store.settings.wand_id:
+                    continue
                 count += 1
                 x, y = tracker.update(sample)
                 btn = "●PULSADO" if sample.btn else "○ libre "
@@ -49,6 +51,8 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
     with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
+                if sample.device_id != store.settings.wand_id:
+                    continue
                 trajectory = recorder.feed(sample)
                 if trajectory:
                     new_gesture = Gesture(name=name, key=key, templates=[trajectory])
@@ -75,6 +79,72 @@ def cmd_draw(store: GestureStore) -> None:
     run_canvas(store, CONFIG_PATH)
 
 
+def cmd_glove_draw(store: GestureStore) -> None:
+    from glove_canvas import run_glove_canvas
+
+    print("Abriendo visor del guante.")
+    print("Activa el toggle del guante e inclínalo para ver la señal.")
+    run_glove_canvas(store)
+
+
+def cmd_glove(store: GestureStore) -> None:
+    from movement_controller import MovementController, _accel_angles
+
+    s = store.settings
+    print(f"Modo GUANTE activo (id='{s.glove_id}'). Ctrl+C para salir.")
+    print(
+        f"Inclina el guante: adelante/atrás → {s.glove_key_forward}/{s.glove_key_back}, "
+        f"izq/der → {s.glove_key_left}/{s.glove_key_right}."
+    )
+    print("Activa el toggle del guante (LED encendido) para que envíe.\n")
+
+    controller = MovementController(s)
+    # Timeout corto para que el watchdog reaccione aunque no lleguen paquetes.
+    with UdpImuReceiver(s.udp_port, s.invert_button, timeout=0.05) as rx:
+        try:
+            for sample in rx.samples(yield_timeouts=True):
+                if sample is None or sample.device_id != s.glove_id:
+                    controller.tick()
+                    continue
+
+                keys = controller.update(sample)
+                pitch, roll = _accel_angles(sample.ax, sample.ay, sample.az)
+                held = "+".join(sorted(keys)) if keys else "-----"
+                print(
+                    f"pitch={pitch:+6.1f}°  roll={roll:+6.1f}°  teclas: {held:9s}",
+                    end="\r",
+                )
+        except KeyboardInterrupt:
+            controller.release_all()
+            print("\nFin modo guante.")
+
+
+def cmd_camera(store: GestureStore) -> None:
+    from camera_controller import CameraController
+
+    s = store.settings
+    print("Modo CÁMARA (varita). Ctrl+C para salir.")
+    print(
+        "Con el botón SUELTO, gira la muñeca (yaw) para mover la cámara.\n"
+        "Con el botón PULSADO la cámara se congela (para dibujar hechizos).\n"
+    )
+
+    cam = CameraController(s)
+    with UdpImuReceiver(s.udp_port, s.invert_button) as rx:
+        try:
+            for sample in rx.samples():
+                if sample.device_id != s.wand_id:
+                    continue
+                dx = cam.update(sample)
+                estado = "CONGELADA (botón)" if sample.btn else "activa        "
+                print(
+                    f"cámara: {estado}  yaw(gz)={sample.gz:+7.1f}°/s  dx={dx:+5.0f}px",
+                    end="\r",
+                )
+        except KeyboardInterrupt:
+            print("\nFin modo cámara.")
+
+
 def cmd_cast(store: GestureStore) -> None:
     if not store.gestures:
         print("No hay gestos en spells.json. Usa: python main.py record --name X --key Y")
@@ -88,12 +158,62 @@ def cmd_cast(store: GestureStore) -> None:
     with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
+                if sample.device_id != store.settings.wand_id:
+                    continue
                 match = matcher.feed(sample)
                 if match:
                     print(f"\n✦ {match.name} → tecla '{match.key}'")
                     press_key(match.key)
         except KeyboardInterrupt:
             print("\nFin modo hechizos.")
+
+
+def cmd_play(store: GestureStore) -> None:
+    """Todo activo a la vez: varita (cámara + hechizos) y guante (WASD)."""
+    from camera_controller import CameraController
+    from movement_controller import MovementController
+
+    s = store.settings
+    print("=== AvadaQPuff: TODO ACTIVO === (Ctrl+C para salir)\n")
+    print(f"Varita (id='{s.wand_id}'):")
+    print("  · botón SUELTO  → cámara (gira la muñeca)")
+    print("  · botón PULSADO → dibujas un hechizo (cámara congelada)")
+    if store.gestures:
+        for g in store.gestures:
+            print(f"      - {g.name} → tecla '{g.key}'")
+    else:
+        print("      (sin hechizos guardados; usa 'draw' para grabar)")
+    print(f"Guante (id='{s.glove_id}'):")
+    print(
+        f"  · inclínalo → {s.glove_key_forward}/{s.glove_key_back}/"
+        f"{s.glove_key_left}/{s.glove_key_right} (toggle ON para enviar)\n"
+    )
+
+    matcher = GestureMatcher(store)
+    cam = CameraController(s)
+    move = MovementController(s)
+
+    # Timeout corto para que el watchdog del guante reaccione aunque no lleguen paquetes.
+    with UdpImuReceiver(s.udp_port, s.invert_button, timeout=0.05) as rx:
+        try:
+            for sample in rx.samples(yield_timeouts=True):
+                if sample is None:
+                    move.tick()
+                    continue
+
+                if sample.device_id == s.glove_id:
+                    move.update(sample)
+                elif sample.device_id == s.wand_id:
+                    cam.update(sample)
+                    match = matcher.feed(sample)
+                    if match:
+                        print(f"✦ {match.name} → tecla '{match.key}'")
+                        press_key(match.key)
+
+                move.tick()
+        except KeyboardInterrupt:
+            move.release_all()
+            print("\nFin. Teclas liberadas.")
 
 
 def main() -> None:
@@ -108,6 +228,10 @@ def main() -> None:
     rec.add_argument("--key", required=True, help="Tecla a simular (ej: 1, q, f)")
 
     sub.add_parser("cast", help="Detectar gestos y pulsar teclas")
+    sub.add_parser("glove", help="Guante: inclinación → WASD (prueba Fase 2)")
+    sub.add_parser("glove-draw", help="Visor visual del guante (verificar señal)")
+    sub.add_parser("camera", help="Cámara air-mouse con la varita (prueba Fase 3)")
+    sub.add_parser("play", help="TODO activo: varita (cámara+hechizos) y guante (WASD)")
 
     args = parser.parse_args()
     store = GestureStore.load(CONFIG_PATH)
@@ -120,6 +244,14 @@ def main() -> None:
         cmd_record(store, args.name, args.key)
     elif args.command == "cast":
         cmd_cast(store)
+    elif args.command == "glove":
+        cmd_glove(store)
+    elif args.command == "glove-draw":
+        cmd_glove_draw(store)
+    elif args.command == "camera":
+        cmd_camera(store)
+    elif args.command == "play":
+        cmd_play(store)
 
 
 if __name__ == "__main__":
