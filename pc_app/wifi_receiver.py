@@ -17,11 +17,13 @@ class ImuSample:
     gx: float
     gy: float
     gz: float
+    btn: int = 0
 
 
 class UdpImuReceiver:
-    def __init__(self, port: int = 4210) -> None:
+    def __init__(self, port: int = 4210, invert_button: bool = False) -> None:
         self.port = port
+        self.invert_button = invert_button
         self._sock: Optional[socket.socket] = None
 
     def __enter__(self) -> "UdpImuReceiver":
@@ -47,6 +49,9 @@ class UdpImuReceiver:
 
             try:
                 payload = json.loads(data.decode("utf-8"))
+                btn = int(payload.get("btn", 0))
+                if self.invert_button:
+                    btn = 0 if btn else 1
                 yield ImuSample(
                     t=int(payload["t"]),
                     ax=float(payload["ax"]),
@@ -55,6 +60,7 @@ class UdpImuReceiver:
                     gx=float(payload["gx"]),
                     gy=float(payload["gy"]),
                     gz=float(payload["gz"]),
+                    btn=btn,
                 )
             except (json.JSONDecodeError, KeyError, ValueError):
                 continue

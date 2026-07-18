@@ -14,22 +14,31 @@ CONFIG_PATH = Path(__file__).parent / "config" / "spells.json"
 
 
 def cmd_monitor(store: GestureStore) -> None:
-    print(f"Escuchando UDP puerto {store.settings.udp_port}...")
-    print("Mueve la varita. Ctrl+C para salir.\n")
     from gesture_engine import MotionTracker
 
-    tracker = MotionTracker()
-    with UdpImuReceiver(store.settings.udp_port) as rx:
+    print(f"Escuchando UDP puerto {store.settings.udp_port}...")
+    print("Mueve la varita y pulsa el botón para verificar. Ctrl+C para salir.\n")
+
+    tracker = MotionTracker(store.settings)
+    count = 0
+    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
+                count += 1
                 x, y = tracker.update(sample)
+                btn = "●PULSADO" if sample.btn else "○ libre "
                 print(
-                    f"pos=({x:+.2f}, {y:+.2f})  "
-                    f"gyro=({sample.gx:+.1f}, {sample.gy:+.1f}, {sample.gz:+.1f})",
+                    f"#{count:6d}  BOTON:{btn}  pos=({x:+7.2f},{y:+7.2f})  "
+                    f"gyro=({sample.gx:+7.1f},{sample.gy:+7.1f},{sample.gz:+7.1f})",
                     end="\r",
                 )
         except KeyboardInterrupt:
-            print("\nFin monitor.")
+            print(f"\nFin monitor. Paquetes recibidos: {count}")
+            if count == 0:
+                print(
+                    "No llegó ningún paquete. Revisa PC_IP, el puerto y el "
+                    "firewall de Windows (permite Python en redes privadas)."
+                )
 
 
 def cmd_record(store: GestureStore, name: str, key: str) -> None:
@@ -37,12 +46,12 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
     print("Haz el movimiento y quédate quieto al terminar.\n")
 
     recorder = GestureRecorder(store.settings)
-    with UdpImuReceiver(store.settings.udp_port) as rx:
+    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
                 trajectory = recorder.feed(sample)
                 if trajectory:
-                    new_gesture = Gesture(name=name, key=key, template=trajectory)
+                    new_gesture = Gesture(name=name, key=key, templates=[trajectory])
                     # Reemplaza si ya existe un gesto con el mismo nombre
                     for i, g in enumerate(store.gestures):
                         if g.name == name:
@@ -61,9 +70,9 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
 def cmd_draw(store: GestureStore) -> None:
     from draw_canvas import run_canvas
 
-    print("Abriendo lienzo 720x720. Mueve la varita para dibujar.")
-    print(f"Se limpia tras {store.settings.draw_clear_after_s:.0f}s sin movimiento.")
-    run_canvas(store)
+    print("Abriendo estudio 720x720.")
+    print("Dibuja moviendo la varita; usa 'Grabar hechizo' para registrar gestos.")
+    run_canvas(store, CONFIG_PATH)
 
 
 def cmd_cast(store: GestureStore) -> None:
@@ -76,7 +85,7 @@ def cmd_cast(store: GestureStore) -> None:
         print(f"  - {g.name} → {g.key}")
 
     matcher = GestureMatcher(store)
-    with UdpImuReceiver(store.settings.udp_port) as rx:
+    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
         try:
             for sample in rx.samples():
                 match = matcher.feed(sample)

@@ -11,15 +11,19 @@
 // --- Configura tu red y la IP del PC ---
 const char *WIFI_SSID = "FIBRAZO-312073";
 const char *WIFI_PASS = "20149661";
-const char *PC_IP = "192.168.1.52";  // IP de tu PC en la misma red
+const char *PC_IP = "192.168.1.55";  // IP de tu PC en la misma red
 const uint16_t UDP_PORT = 4210;
 
 // Pines I2C (alternativa: SDA=13, SCL=16)
 const int PIN_SDA = 14;
 const int PIN_SCL = 15;
 
+// Boton de la varita: conectar entre este pin y GND (usa pull-up interno).
+// Presionado = LOW. En ESP32 mini/C3 cambia el pin por uno libre de tu placa.
+const int PIN_BUTTON = 13;
+
 const uint8_t MPU_ADDR = 0x68;
-const uint32_t SAMPLE_INTERVAL_MS = 20;  // ~50 Hz
+const uint32_t SAMPLE_INTERVAL_MS = 10;  // ~100 Hz
 
 WiFiUDP udp;
 
@@ -85,6 +89,7 @@ void connectWiFi() {
 
 void setup() {
   Serial.begin(115200);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
   Wire.begin(PIN_SDA, PIN_SCL);
   Wire.setClock(400000);
 
@@ -123,11 +128,14 @@ void loop() {
   float fgy = gy / 65.5f;
   float fgz = gz / 65.5f;
 
-  char payload[160];
+  // Boton: presionado (a GND) = 1
+  int btn = (digitalRead(PIN_BUTTON) == LOW) ? 1 : 0;
+
+  char payload[176];
   snprintf(payload, sizeof(payload),
            "{\"t\":%lu,\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
-           "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f}",
-           now, fax, fay, faz, fgx, fgy, fgz);
+           "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,\"btn\":%d}",
+           now, fax, fay, faz, fgx, fgy, fgz, btn);
 
   udp.beginPacket(PC_IP, UDP_PORT);
   udp.write((const uint8_t *)payload, strlen(payload));
