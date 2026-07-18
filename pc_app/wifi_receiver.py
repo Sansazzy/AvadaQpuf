@@ -18,18 +18,22 @@ class ImuSample:
     gy: float
     gz: float
     btn: int = 0
+    device_id: str = "wand"
 
 
 class UdpImuReceiver:
-    def __init__(self, port: int = 4210, invert_button: bool = False) -> None:
+    def __init__(
+        self, port: int = 4210, invert_button: bool = False, timeout: float = 1.0
+    ) -> None:
         self.port = port
         self.invert_button = invert_button
+        self.timeout = timeout
         self._sock: Optional[socket.socket] = None
 
     def __enter__(self) -> "UdpImuReceiver":
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.bind(("0.0.0.0", self.port))
-        self._sock.settimeout(1.0)
+        self._sock.settimeout(self.timeout)
         return self
 
     def __exit__(self, *_) -> None:
@@ -37,7 +41,12 @@ class UdpImuReceiver:
             self._sock.close()
             self._sock = None
 
-    def samples(self) -> Iterator[ImuSample]:
+    def samples(self, yield_timeouts: bool = False) -> Iterator[Optional[ImuSample]]:
+        """Itera muestras del socket.
+
+        Si yield_timeouts es True, emite None cuando pasa el timeout sin
+        recibir nada (útil para ejecutar watchdogs periódicos).
+        """
         if not self._sock:
             raise RuntimeError("Receiver no iniciado")
 
@@ -45,6 +54,8 @@ class UdpImuReceiver:
             try:
                 data, _ = self._sock.recvfrom(1024)
             except TimeoutError:
+                if yield_timeouts:
+                    yield None
                 continue
 
             try:
@@ -61,6 +72,7 @@ class UdpImuReceiver:
                     gy=float(payload["gy"]),
                     gz=float(payload["gz"]),
                     btn=btn,
+                    device_id=str(payload.get("id", "wand")),
                 )
             except (json.JSONDecodeError, KeyError, ValueError):
                 continue

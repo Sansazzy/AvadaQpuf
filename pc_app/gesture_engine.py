@@ -46,6 +46,27 @@ class AppSettings:
     invert_x: bool = True
     invert_y: bool = False
     swap_axes: bool = False
+    # --- Identificadores de dispositivo (enrutado por "id") ---
+    wand_id: str = "wand"
+    glove_id: str = "glove"
+    # --- Guante: inclinación (acelerómetro) -> WASD ---
+    glove_key_forward: str = "w"
+    glove_key_back: str = "s"
+    glove_key_left: str = "a"
+    glove_key_right: str = "d"
+    glove_tilt_on: float = 22.0   # grados para ENGANCHAR una dirección
+    glove_tilt_off: float = 14.0  # grados para SOLTARLA (histéresis anti-parpadeo)
+    glove_invert_pitch: bool = False  # adelante/atrás (W/S)
+    glove_invert_roll: bool = False   # izquierda/derecha (A/D)
+    glove_swap_axes: bool = False     # intercambia pitch<->roll según el montaje
+    glove_watchdog_ms: int = 150      # sin paquetes del guante -> soltar teclas
+    # --- Cámara (varita, air-mouse relativo horizontal) ---
+    camera_enabled: bool = True
+    camera_sensitivity: float = 8.0   # píxeles de ratón por grado girado
+    camera_deadband: float = 3.0      # °/s por debajo de esto no mueve la cámara
+    camera_smoothing: float = 0.5     # 0..1: más bajo = más suave (más lag)
+    camera_grace_ms: int = 200        # espera tras soltar el botón antes de reanudar
+    camera_invert: bool = False       # invierte el sentido horizontal
 
 
 def _parse_templates(item: dict) -> List[Trajectory]:

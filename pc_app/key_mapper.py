@@ -16,3 +16,13 @@ def press_key(key: str, hold_s: float = 0.05) -> None:
     keyboard.press(key)
     time.sleep(hold_s)
     keyboard.release(key)
+
+
+def hold_key(key: str) -> None:
+    """Mantiene una tecla pulsada (sin soltarla). Para movimiento sostenido."""
+    keyboard.press(key)
+
+
+def release_key(key: str) -> None:
+    """Suelta una tecla previamente mantenida con hold_key."""
+    keyboard.release(key)
