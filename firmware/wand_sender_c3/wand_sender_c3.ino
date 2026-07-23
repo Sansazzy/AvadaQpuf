@@ -1,7 +1,17 @@
 /*
- * AvadaQPuff - ESP32-CAM + MPU6050
+ * AvadaQPuff - VARITA en ESP32-C3 SuperMini + MPU6050
+ * Misma lógica que wand_sender.ino (ESP32-CAM), solo cambian los pines.
  * Envía lecturas del IMU por WiFi (UDP) al PC.
- * La cámara no se inicializa.
+ *
+ * En Arduino IDE:
+ *   - Placa: "ESP32C3 Dev Module" (o el perfil del SuperMini).
+ *   - "USB CDC On Boot: Enabled" para ver el monitor serie por USB.
+ *
+ * Pines del C3 SuperMini (evitando strapping: GPIO2, GPIO8, GPIO9, y UART 20/21):
+ *   MPU SDA -> GPIO4     MPU SCL -> GPIO5
+ *   Botón hechizos -> GPIO10 (a GND)
+ *   Botón 2 embrague cámara -> GPIO6 (a GND)
+ *   VCC MPU -> 3V3   GND -> GND
  */
 
 #include <WiFi.h>
@@ -11,23 +21,21 @@
 // --- Configura tu red y la IP del PC ---
 const char *WIFI_SSID = "FIBRAZO-312073";
 const char *WIFI_PASS = "20149661";
-const char *PC_IP = "192.168.1.55";  // IP de tu PC en la misma red
+const char *PC_IP = "192.168.1.56";  // IP de tu PC en la misma red
 const uint16_t UDP_PORT = 4210;
 
-// Pines I2C (alternativa: SDA=13, SCL=16)
-const int PIN_SDA = 14;
-const int PIN_SCL = 15;
+// Pines I2C del C3 SuperMini
+const int PIN_SDA = 4;
+const int PIN_SCL = 5;
 
-// Boton de la varita (hechizos): conectar entre este pin y GND (pull-up interno).
-// Presionado = LOW. En ESP32 mini/C3 cambia el pin por uno libre de tu placa.
-const int PIN_BUTTON = 13;
+// Boton de la varita (hechizos): entre este pin y GND (pull-up interno).
+// Presionado = LOW.
+const int PIN_BUTTON = 10;
 
-// Boton 2 (EMBRAGUE de camara): momentaneo entre este pin y GND. Funciona como
-// toggle por software: activa/desactiva el control de camara para poder pausar,
-// recolocar la muñeca y seguir girando. No afecta a los hechizos.
-// OJO: GPIO2 es strapping pin en el ESP32-CAM; si te cuesta flashear, desconecta
-// este boton mientras subes el firmware.
-const int PIN_BUTTON2 = 2;
+// Boton 2 (EMBRAGUE de camara): momentaneo entre este pin y GND. Toggle por
+// software: activa/desactiva el control de camara para pausar, recolocar la
+// muñeca y seguir girando. No afecta a los hechizos.
+const int PIN_BUTTON2 = 6;
 
 const uint8_t MPU_ADDR = 0x68;
 const uint32_t SAMPLE_INTERVAL_MS = 10;  // ~100 Hz
@@ -102,6 +110,10 @@ void updateCamToggle() {
 
 void connectWiFi() {
   WiFi.mode(WIFI_STA);
+  // FIX conocido del ESP32-C3 SuperMini: con la potencia TX por defecto muchas
+  // de estas placas NO conectan al WiFi. Bajarla a 8.5 dBm lo soluciona.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  WiFi.setSleep(false);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Conectando WiFi");
   uint8_t attempts = 0;

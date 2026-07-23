@@ -29,7 +29,7 @@ from gesture_engine import (
     MotionTracker,
     best_match,
 )
-from wifi_receiver import UdpImuReceiver
+from transport import make_receiver
 
 CANVAS_SIZE = 720
 POINTER_RADIUS = 6
@@ -74,6 +74,7 @@ class Studio:
         self._last_btn = False
         self._packets = 0
         self._last_packet_t = 0.0
+        self._rx = None  # referencia al receptor (para status BLE)
 
         self._build_ui()
         self._start_receiver()
@@ -153,19 +154,31 @@ class Studio:
         for g in self.store.gestures:
             self.listbox.insert(tk.END, f"{g.name}  →  {g.key}")
 
-    # ---------- Receptor UDP ----------
+    # ---------- Receptor ----------
     def _start_receiver(self) -> None:
         def rx_loop() -> None:
             try:
-                with UdpImuReceiver(
-                    self.settings.udp_port, self.settings.invert_button
-                ) as rx:
+                print(
+                    f"[draw] Arrancando receptor "
+                    f"(transport={getattr(self.settings, 'transport', '?')})...",
+                    flush=True,
+                )
+                with make_receiver(self.settings, devices=["wand"]) as rx:
+                    self._rx = rx
                     for sample in rx.samples():
                         if self.stop.is_set():
                             break
+                        # El estudio es para la varita; ignora el guante.
+                        if sample.device_id != self.settings.wand_id:
+                            continue
                         self.sample_q.put(sample)
-            except OSError:
-                pass
+            except OSError as exc:
+                print(f"[draw] Error del receptor: {exc!r}", flush=True)
+            except Exception as exc:
+                print(f"[draw] Error inesperado del receptor: {exc!r}", flush=True)
+            finally:
+                self._rx = None
+                print("[draw] Receptor detenido.", flush=True)
 
         self.rx_thread = threading.Thread(target=rx_loop, daemon=True)
         self.rx_thread.start()
@@ -432,10 +445,24 @@ class Studio:
 
     def _update_indicators(self) -> None:
         receiving = (time.time() - self._last_packet_t) < 1.0
+        rx = self._rx
+        st = None
+        if rx is not None and hasattr(rx, "status"):
+            try:
+                st = rx.status().get(self.settings.wand_id)
+            except Exception:
+                st = None
+
         if receiving:
             self.signal_label.config(
                 text=f"Señal: recibiendo ({self._packets})", fg="#2e7d32"
             )
+        elif st and st.get("connected"):
+            self.signal_label.config(
+                text=f"BLE: conectado, sin datos ({st['packets']})", fg="#ef6c00"
+            )
+        elif st is not None:
+            self.signal_label.config(text="BLE: buscando varita...", fg="#c62828")
         else:
             self.signal_label.config(text="Señal: ⚠ sin datos", fg="#c62828")
 

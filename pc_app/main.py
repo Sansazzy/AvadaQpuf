@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from gesture_engine import Gesture, GestureMatcher, GestureRecorder, GestureStore
 from key_mapper import press_key
-from wifi_receiver import UdpImuReceiver
+from transport import make_receiver
 
 CONFIG_PATH = Path(__file__).parent / "config" / "spells.json"
 
@@ -21,7 +22,7 @@ def cmd_monitor(store: GestureStore) -> None:
 
     tracker = MotionTracker(store.settings)
     count = 0
-    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
+    with make_receiver(store.settings, devices=["wand"]) as rx:
         try:
             for sample in rx.samples():
                 if sample.device_id != store.settings.wand_id:
@@ -48,7 +49,7 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
     print("Haz el movimiento y quédate quieto al terminar.\n")
 
     recorder = GestureRecorder(store.settings)
-    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
+    with make_receiver(store.settings, devices=["wand"]) as rx:
         try:
             for sample in rx.samples():
                 if sample.device_id != store.settings.wand_id:
@@ -74,8 +75,15 @@ def cmd_record(store: GestureStore, name: str, key: str) -> None:
 def cmd_draw(store: GestureStore) -> None:
     from draw_canvas import run_canvas
 
+    s = store.settings
     print("Abriendo estudio 720x720.")
     print("Dibuja moviendo la varita; usa 'Grabar hechizo' para registrar gestos.")
+    print(f"[draw] transporte={getattr(s, 'transport', 'udp')}")
+    if getattr(s, "transport", "udp") == "ble":
+        print(
+            f"[draw] Esperando BLE '{s.ble_wand_name}'. "
+            "Mira los logs [BLE] de escaneo/conexión."
+        )
     run_canvas(store, CONFIG_PATH)
 
 
@@ -100,7 +108,7 @@ def cmd_glove(store: GestureStore) -> None:
 
     controller = MovementController(s)
     # Timeout corto para que el watchdog reaccione aunque no lleguen paquetes.
-    with UdpImuReceiver(s.udp_port, s.invert_button, timeout=0.05) as rx:
+    with make_receiver(s, timeout=0.05, devices=["glove"]) as rx:
         try:
             for sample in rx.samples(yield_timeouts=True):
                 if sample is None or sample.device_id != s.glove_id:
@@ -130,13 +138,18 @@ def cmd_camera(store: GestureStore) -> None:
     )
 
     cam = CameraController(s)
-    with UdpImuReceiver(s.udp_port, s.invert_button) as rx:
+    with make_receiver(s, devices=["wand"]) as rx:
         try:
             for sample in rx.samples():
                 if sample.device_id != s.wand_id:
                     continue
                 dx = cam.update(sample)
-                estado = "CONGELADA (botón)" if sample.btn else "activa        "
+                if not sample.cam:
+                    estado = "PAUSA (embrague)"
+                elif sample.btn:
+                    estado = "CONGELADA (botón)"
+                else:
+                    estado = "activa          "
                 print(
                     f"cámara: {estado}  yaw(gz)={sample.gz:+7.1f}°/s  dx={dx:+5.0f}px",
                     end="\r",
@@ -155,7 +168,7 @@ def cmd_cast(store: GestureStore) -> None:
         print(f"  - {g.name} → {g.key}")
 
     matcher = GestureMatcher(store)
-    with UdpImuReceiver(store.settings.udp_port, store.settings.invert_button) as rx:
+    with make_receiver(store.settings, devices=["wand"]) as rx:
         try:
             for sample in rx.samples():
                 if sample.device_id != store.settings.wand_id:
@@ -175,6 +188,12 @@ def cmd_play(store: GestureStore) -> None:
 
     s = store.settings
     print("=== AvadaQPuff: TODO ACTIVO === (Ctrl+C para salir)\n")
+    print(f"Transporte: {getattr(s, 'transport', 'udp')}")
+    if getattr(s, "transport", "udp") == "ble":
+        print(
+            f"  BLE wand='{s.ble_wand_name}'  glove='{s.ble_glove_name}'\n"
+            "  Enciende los dispositivos y mira los logs [BLE] abajo.\n"
+        )
     print(f"Varita (id='{s.wand_id}'):")
     print("  · botón SUELTO  → cámara (gira la muñeca)")
     print("  · botón PULSADO → dibujas un hechizo (cámara congelada)")
@@ -193,17 +212,52 @@ def cmd_play(store: GestureStore) -> None:
     cam = CameraController(s)
     move = MovementController(s)
 
+    last_status_print = 0.0
+    wand_packets = 0
+    glove_packets = 0
+
     # Timeout corto para que el watchdog del guante reaccione aunque no lleguen paquetes.
-    with UdpImuReceiver(s.udp_port, s.invert_button, timeout=0.05) as rx:
+    with make_receiver(s, timeout=0.05) as rx:
         try:
             for sample in rx.samples(yield_timeouts=True):
+                now = time.time()
                 if sample is None:
                     move.tick()
+                    # Cada 3 s, resume el estado BLE / paquetes.
+                    if now - last_status_print >= 3.0:
+                        last_status_print = now
+                        st = getattr(rx, "status", lambda: {})()
+                        if st:
+                            parts = []
+                            for did, info in st.items():
+                                age = info["last_sample_age_s"]
+                                age_s = f"{age:.1f}s" if age is not None else "—"
+                                parts.append(
+                                    f"{did}:{'OK' if info['connected'] else 'NO'} "
+                                    f"pk={info['packets']} age={age_s}"
+                                )
+                            print("[play] " + " | ".join(parts), flush=True)
+                        else:
+                            print(
+                                f"[play] esperando datos... "
+                                f"wand_pk={wand_packets} glove_pk={glove_packets}",
+                                flush=True,
+                            )
                     continue
 
                 if sample.device_id == s.glove_id:
+                    glove_packets += 1
+                    if glove_packets == 1:
+                        print("[play] ✓ primer paquete del GUANTE", flush=True)
                     move.update(sample)
                 elif sample.device_id == s.wand_id:
+                    wand_packets += 1
+                    if wand_packets == 1:
+                        print(
+                            f"[play] ✓ primer paquete de la VARITA "
+                            f"(btn={sample.btn} cam={sample.cam})",
+                            flush=True,
+                        )
                     cam.update(sample)
                     match = matcher.feed(sample)
                     if match:
@@ -213,7 +267,10 @@ def cmd_play(store: GestureStore) -> None:
                 move.tick()
         except KeyboardInterrupt:
             move.release_all()
-            print("\nFin. Teclas liberadas.")
+            print(
+                f"\nFin. Paquetes: wand={wand_packets} glove={glove_packets}. "
+                "Teclas liberadas."
+            )
 
 
 def main() -> None:
