@@ -46,6 +46,10 @@ class AppSettings:
     invert_x: bool = True
     invert_y: bool = False
     swap_axes: bool = False
+    # --- Transporte: "ble" (Bluetooth, sin red) o "udp" (WiFi) ---
+    transport: str = "ble"
+    ble_wand_name: str = "AvadaQPuff-Wand"
+    ble_glove_name: str = "AvadaQPuff-Glove"
     # --- Identificadores de dispositivo (enrutado por "id") ---
     wand_id: str = "wand"
     glove_id: str = "glove"

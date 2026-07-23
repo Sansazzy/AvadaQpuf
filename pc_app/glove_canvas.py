@@ -20,7 +20,7 @@ from typing import Optional, Set
 
 from gesture_engine import GestureStore
 from movement_controller import MovementController
-from wifi_receiver import UdpImuReceiver
+from transport import make_receiver
 
 CANVAS_SIZE = 420
 MAX_ANGLE = 45.0  # grados que llenan el borde del recuadro
@@ -93,19 +93,28 @@ class GloveStudio:
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ---------- Receptor UDP ----------
+    # ---------- Receptor ----------
     def _start_receiver(self) -> None:
         def rx_loop() -> None:
             try:
-                with UdpImuReceiver(
-                    self.s.udp_port, self.s.invert_button
-                ) as rx:
+                print(
+                    "[glove-draw] Buscando solo el GUANTE (AQ-Glove). "
+                    "La varita se ignora.",
+                    flush=True,
+                )
+                with make_receiver(self.s, devices=["glove"]) as rx:
                     for sample in rx.samples():
                         if self.stop.is_set():
                             break
+                        if sample.device_id != self.s.glove_id:
+                            continue
                         self.sample_q.put(sample)
-            except OSError:
-                pass
+            except OSError as exc:
+                print(f"[glove-draw] Error del receptor: {exc!r}", flush=True)
+            except Exception as exc:
+                print(f"[glove-draw] Error: {exc!r}", flush=True)
+            finally:
+                print("[glove-draw] Receptor detenido.", flush=True)
 
         self.rx_thread = threading.Thread(target=rx_loop, daemon=True)
         self.rx_thread.start()

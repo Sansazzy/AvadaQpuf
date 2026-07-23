@@ -18,6 +18,7 @@ class ImuSample:
     gy: float
     gz: float
     btn: int = 0
+    cam: int = 1
     device_id: str = "wand"
 
 
@@ -72,6 +73,7 @@ class UdpImuReceiver:
                     gy=float(payload["gy"]),
                     gz=float(payload["gz"]),
                     btn=btn,
+                    cam=int(payload.get("cam", 1)),
                     device_id=str(payload.get("id", "wand")),
                 )
             except (json.JSONDecodeError, KeyError, ValueError):

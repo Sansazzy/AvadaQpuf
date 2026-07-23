@@ -38,6 +38,9 @@ class CameraController:
         Devuelve los píxeles horizontales aplicados (para diagnóstico).
         """
         pressed = bool(sample.btn)
+        # Embrague: cam=0 -> cámara pausada (para recolocar la muñeca y seguir).
+        # No afecta a los hechizos (eso lo gestiona el botón de gestos aparte).
+        cam_active = bool(sample.cam)
         now = time.time()
 
         # Flanco de soltar el botón -> arranca el grace period.
@@ -56,6 +59,13 @@ class CameraController:
         # El EMA se actualiza siempre para no arrastrar valores viejos al reanudar.
         a = self.s.camera_smoothing
         self._lp += a * (sample.gz - self._lp)
+
+        # Embrague desacoplado: no mueve y deja el estado listo para reanudar
+        # limpio (sin saltos ni suavizado viejo).
+        if not cam_active:
+            self._lp = sample.gz
+            self._carry = 0.0
+            return 0.0
 
         # Congelada mientras se pulsa el botón o durante el grace.
         if not self.s.camera_enabled or pressed or now < self._resume_at:
